@@ -1,6 +1,6 @@
 {
   "name": "model-router",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Picks Haiku, Sonnet or Opus for each prompt by task type; a manual /model choice wins, /route on|off toggles it, and the reason shows in the status line.",
   "author": { "name": "nefirim96" },
   "license": "Apache-2.0"

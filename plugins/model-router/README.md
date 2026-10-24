@@ -14,6 +14,9 @@ Picks a model for each prompt by task type, with Haiku labelling the prompt firs
 - A short follow-up (under 15 characters, like "계속해") keeps the previous pick.
 - If the picked model's request fails before anything streams, it is sent again on the session's own model.
 - Subagents are not routed.
+- After each answer, one dim line shows the pick, the model that answered, the time taken and the turn's tokens, for example:
+  `🧭 opus · 여러 파일 설계 · 실제: claude-opus-5-5 · 1분 12초 · 입력 48.2k / 출력 2.1k (캐시 읽기 41.0k) · 분류 +0.3k`
+  It shows with routing off too. The model never reads it, so it costs no tokens.
 
 Costs: each new prompt adds one small Haiku call for the label, and switching models between prompts means the new model does not reuse the previous model's prompt cache. Whether this saves money depends on your work; compare before relying on it.
 

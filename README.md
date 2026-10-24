@@ -6,7 +6,7 @@
 | --- | --- |
 | ☀ **token-weather** | 입력창 위에 컨텍스트 사용량을 날씨처럼 표시 |
 | ▶ **replay-theater** | 마지막 턴에 Claude가 수정한 파일을 한 단계씩 diff로 재생 (`/replay`) |
-| 🧭 **model-router** | 입력마다 작업 종류를 판단해 Haiku / Sonnet / Opus 자동 선택 (`/route on`, `/route off`) |
+| 🧭 **model-router** | 입력마다 작업 종류를 판단해 Haiku / Sonnet / Opus 자동 선택 (`/route on`, `/route off`), 답변마다 모델·걸린 시간·토큰 사용량 표시 |
 
 ![token-weather](plugins/token-weather/screenshots/token-weather-showers.png)
 

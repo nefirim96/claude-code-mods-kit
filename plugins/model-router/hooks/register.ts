@@ -8,8 +8,18 @@
 // Manual first: when /model changed the session's model since routing
 //   started, routing pauses until `/route on`.
 // The status line shows the pick, the reason and the model that answered.
+// turn.complete: one dim line under each answer with the pick, the model
+//   that answered, the time taken and the turn's tokens. It shows with
+//   routing off too, and the model never reads it.
 
 import type { EngineInterface, Register } from 'claude-code'
+
+type Usage = {
+  input_tokens: number
+  output_tokens: number
+  cache_read_input_tokens: number
+  cache_creation_input_tokens: number
+}
 
 type Tier = 'simple' | 'general' | 'complex'
 type Route = { tier: Tier; model: string; reason: string }
@@ -29,6 +39,43 @@ let baseline: string | undefined
 let manualModel: string | undefined
 let route: Route | undefined
 let answeredBy: string | undefined
+let startedAt: number | undefined
+let classifyTokens = 0
+
+function totalOf(u: Usage): number {
+  return u.input_tokens + u.output_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens
+}
+
+function short(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`
+  return String(n)
+}
+
+function duration(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000))
+  return s < 60 ? `${s}초` : `${Math.floor(s / 60)}분 ${s % 60}초`
+}
+
+function pickLabel(): string {
+  if (!isEnabled) return '자동 선택 꺼짐'
+  if (manualModel) return '수동 선택'
+  if (!route) return '기본 모델'
+  return `${route.model} · ${route.reason}`
+}
+
+function summary(ms: number, usage: (Usage & { model: string }) | undefined, reason: string): string {
+  const parts = [`🧭 ${pickLabel()}`]
+  if (usage) {
+    const input = usage.input_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens
+    parts.push(`실제: ${usage.model}`, duration(ms))
+    parts.push(`입력 ${short(input)} / 출력 ${short(usage.output_tokens)} (캐시 읽기 ${short(usage.cache_read_input_tokens)})`)
+  } else {
+    parts.push(duration(ms), `토큰 정보 없음 (${reason})`)
+  }
+  if (classifyTokens > 0) parts.push(`분류 +${short(classifyTokens)}`)
+  return parts.join(' · ')
+}
 
 async function pick($: EngineInterface, text: string): Promise<Route | undefined> {
   const r = await $.model.complete({
@@ -40,6 +87,7 @@ async function pick($: EngineInterface, text: string): Promise<Route | undefined
     prompt: `<request>\n${text.slice(0, 4000)}\n</request>`,
   })
   if (!r.isAnswered) return undefined
+  classifyTokens += totalOf(r.usage)
   const json = r.text.match(/\{[\s\S]*\}/)?.[0]
   if (!json) return undefined
   const parsed = JSON.parse(json) as { tier?: string; reason?: string }
@@ -97,7 +145,10 @@ export const register: Register = on => {
 
   on('prompt.submit', async ($, e, next) => {
     // Slash commands, hidden prompts and prompts typed into a running turn keep the current pick.
-    if (!isEnabled || e.command || e.isMeta || e.turnId) return next(e)
+    if (e.command || e.isMeta || e.turnId) return next(e)
+    startedAt = await $.clock.now()
+    classifyTokens = 0
+    if (!isEnabled) return next(e)
 
     const current = await $.session.model()
     if (baseline === undefined) baseline = current
@@ -149,5 +200,21 @@ export const register: Register = on => {
       $.ui.status(`route: ${chosen.model} 요청 실패 · 기본 모델로 다시 보냄`)
       return yield* next(e)
     }
+  })
+
+  // A turn a slash command or a skill started has no prompt.submit: time it from here.
+  on('turn.start', async ($, e, next) => {
+    if (!e.agentId && startedAt === undefined) startedAt = await $.clock.now()
+    return next(e)
+  })
+
+  on('turn.complete', async ($, e, next) => {
+    const r = await next(e)
+    if (e.agentId || startedAt === undefined) return r
+    const ms = (await $.clock.now()) - startedAt
+    $.ui.log(summary(ms, e.usage, e.reason))
+    startedAt = undefined
+    classifyTokens = 0
+    return r
   })
 }
