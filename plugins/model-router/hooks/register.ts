@@ -22,9 +22,11 @@ type Usage = {
 }
 
 type Tier = 'simple' | 'general' | 'complex'
-type Route = { tier: Tier; model: string; reason: string }
+type Route = { tier: Tier; model: string; label: string; reason: string }
 
-const MODEL: Record<Tier, string> = { simple: 'haiku', general: 'sonnet', complex: 'opus' }
+// Full ids: a bare alias such as `sonnet` can resolve to a model this account cannot use.
+const MODEL: Record<Tier, string> = { simple: 'claude-haiku-5-5', general: 'claude-sonnet-5-5', complex: 'claude-opus-5-5' }
+const LABEL: Record<Tier, string> = { simple: 'haiku', general: 'sonnet', complex: 'opus' }
 const SHORT_FOLLOW_UP = 15
 
 const SYSTEM = `You label a coding request for model routing. Reply with JSON only:
@@ -61,7 +63,7 @@ function pickLabel(): string {
   if (!isEnabled) return '자동 선택 꺼짐'
   if (manualModel) return '수동 선택'
   if (!route) return '기본 모델'
-  return `${route.model} · ${route.reason}`
+  return `${route.label} · ${route.reason}`
 }
 
 function summary(ms: number, usage: (Usage & { model: string }) | undefined, reason: string): string {
@@ -93,7 +95,7 @@ async function pick($: EngineInterface, text: string): Promise<Route | undefined
   const parsed = JSON.parse(json) as { tier?: string; reason?: string }
   const tier = parsed.tier as Tier
   if (!(tier in MODEL)) return undefined
-  return { tier, model: MODEL[tier], reason: String(parsed.reason ?? '').slice(0, 60) }
+  return { tier, model: MODEL[tier], label: LABEL[tier], reason: String(parsed.reason ?? '').slice(0, 60) }
 }
 
 function show($: EngineInterface) {
@@ -101,7 +103,7 @@ function show($: EngineInterface) {
   if (manualModel) return $.ui.status(`route: 수동 선택 우선 (${manualModel}) · /route on 으로 자동 재개`)
   if (!route) return $.ui.status('route: 자동 선택 켜짐 · 다음 입력부터 적용')
   const actual = answeredBy ? ` · 실제: ${answeredBy}` : ''
-  $.ui.status(`route: ${route.model} · ${route.reason}${actual}`)
+  $.ui.status(`route: ${route.label} · ${route.reason}${actual}`)
 }
 
 function describe(): string {
@@ -109,7 +111,7 @@ function describe(): string {
   if (manualModel) return `Model Router: 수동 선택(${manualModel})을 따르는 중. /route on 으로 자동 선택을 다시 시작해요.`
   if (!route) return 'Model Router: 켜짐. 다음 입력부터 모델을 골라요.'
   const actual = answeredBy ? `, 실제 응답 모델 ${answeredBy}` : ''
-  return `Model Router: 켜짐. 마지막 선택 ${route.model} (${route.tier}): ${route.reason}${actual}`
+  return `Model Router: 켜짐. 마지막 선택 ${route.label} (${route.tier}): ${route.reason}${actual}`
 }
 
 export const register: Register = on => {
@@ -191,13 +193,15 @@ export const register: Register = on => {
         yield step.value
         step = await stream.next()
       }
+      // No response at all (an unusable model comes back as an error, not a throw): resend on the session's model.
+      if (!hasStarted && step.value.stopReason === null) throw new Error('no response')
       answeredBy = step.value.usage?.model
       show($)
       return step.value
     } catch (err) {
       if (hasStarted) throw err
       route = undefined
-      $.ui.status(`route: ${chosen.model} 요청 실패 · 기본 모델로 다시 보냄`)
+      $.ui.status(`route: ${chosen.label} 요청 실패 · 기본 모델로 다시 보냄`)
       return yield* next(e)
     }
   })

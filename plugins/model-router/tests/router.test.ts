@@ -4,7 +4,7 @@ const USAGE = { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, c
 
 // Stands in for the engine: the session runs on `sessionModel`, Haiku labels
 // every prompt with `label`, and each model request records the model it named.
-type State = { sessionModel: string; label: string; asked: string[]; failModel?: string; now?: number; logs?: string[] }
+type State = { sessionModel: string; label: string; asked: string[]; failModel?: string; silentModel?: string; now?: number; logs?: string[] }
 
 function engine(on: any, state: State) {
   const store = new Map<string, unknown>()
@@ -23,6 +23,8 @@ function engine(on: any, state: State) {
   on('turn.step', async function* (_: unknown, e: any) {
     state.asked.push(e.model)
     if (e.model === state.failModel) throw new Error('model not available')
+    // An unusable model comes back as an error response: nothing streams and no stop reason.
+    if (e.model === state.silentModel) return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: null }
     return { turnId: e.turnId, index: e.index, answer: 'ok', toolUses: [], stopReason: 'end_turn', usage: { ...USAGE, model: `${e.model}-id` } }
   })
 }
@@ -41,13 +43,13 @@ test('a complex prompt goes to Opus, a simple one to Haiku', async ($: any, on: 
 
   await $.prompt.submit({ text: '인증 모듈 전체 구조를 다시 설계해줘', wait: false })
   const r = await step($)
-  expect(state.asked).toEqual(['opus'])
-  expect(r.usage.model).toBe('opus-id')
+  expect(state.asked).toEqual(['claude-opus-5-5'])
+  expect(r.usage.model).toBe('claude-opus-5-5-id')
 
   state.label = '{"tier":"simple","reason":"파일명 정리"}'
   await $.prompt.submit({ text: '이 폴더 파일명을 날짜순으로 정리해줘', wait: false })
   await step($)
-  expect(state.asked).toEqual(['opus', 'haiku'])
+  expect(state.asked).toEqual(['claude-opus-5-5', 'claude-haiku-5-5'])
 })
 
 test('a manual /model choice wins until /route on', async ($: any, on: any) => {
@@ -64,24 +66,35 @@ test('a manual /model choice wins until /route on', async ($: any, on: any) => {
   expect(on_.text).toContain('켜짐')
   await $.prompt.submit({ text: '인증 모듈 전체 구조를 다시 설계해줘', wait: false })
   await step($)
-  expect(state.asked).toEqual(['session-default', 'opus'])
+  expect(state.asked).toEqual(['session-default', 'claude-opus-5-5'])
 })
 
 test('/route off stops routing; a failed model falls back to the session model', async ($: any, on: any) => {
-  const state = { sessionModel: 'sonnet', label: '{"tier":"complex","reason":"설계"}', asked: [] as string[], failModel: 'opus' }
+  const state = { sessionModel: 'sonnet', label: '{"tier":"complex","reason":"설계"}', asked: [] as string[], failModel: 'claude-opus-5-5' }
   engine(on, state)
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
 
   await $.prompt.submit({ text: '인증 모듈 전체 구조를 다시 설계해줘', wait: false })
   const r = await step($)
-  expect(state.asked).toEqual(['opus', 'session-default'])
+  expect(state.asked).toEqual(['claude-opus-5-5', 'session-default'])
   expect(r.answer).toBe('ok')
 
   const off = await $.command.run({ command: 'route', args: 'off' })
   expect(off.text).toContain('꺼짐')
   await $.prompt.submit({ text: '인증 모듈 전체 구조를 다시 설계해줘', wait: false })
   await step($)
-  expect(state.asked).toEqual(['opus', 'session-default', 'session-default'])
+  expect(state.asked).toEqual(['claude-opus-5-5', 'session-default', 'session-default'])
+})
+
+test('a model that returns no response is resent on the session model', async ($: any, on: any) => {
+  const state: State = { sessionModel: 'sonnet', label: '{"tier":"general","reason":"일반 작업"}', asked: [], silentModel: 'claude-sonnet-5-5' }
+  engine(on, state)
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  await $.prompt.submit({ text: '이 함수에 주석을 달아줘', wait: false })
+  const r = await step($)
+  expect(state.asked).toEqual(['claude-sonnet-5-5', 'session-default'])
+  expect(r.answer).toBe('ok')
 })
 
 const TURN_USAGE = {
