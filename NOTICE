@@ -1,0 +1,11 @@
+claude-code-mods-kit
+
+plugins/token-weather and plugins/replay-theater
+  Copyright 2026 Anthropic PBC
+  Licensed under the Apache License, Version 2.0 (see LICENSE).
+  Copied unmodified from the claude-code-playground examples (claude-code/mods).
+
+plugins/model-router
+  Written for this kit. Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This kit is not made or endorsed by Anthropic. It is shared as-is, with no support or maintenance promised.
